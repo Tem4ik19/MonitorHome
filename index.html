@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <title>Система моніторингу дому</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #eef2f5;
+      padding: 40px;
+      margin: 0;
+      text-align: center;
+      position: relative;
+    }
+    h1 {
+      font-size: 28px;
+      color: #2c3e50;
+      margin-bottom: 30px;
+    }
+    .chart-container {
+      background: #fff;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+      max-width: 900px;
+      height: 300px;
+      margin: 0 auto 40px auto;
+      position: relative;
+    }
+    canvas {
+      max-width: 100%;
+      height: 100% !important;
+    }
+
+    #toggleBtn, #modeBtn {
+      position: fixed;
+      top: 20px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      color: white;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      user-select: none;
+      z-index: 1000;
+    }
+    #toggleBtn {
+      right: 20px;
+      background-color: #28a745;
+    }
+    #toggleBtn.off {
+      background-color: #dc3545;
+    }
+    #modeBtn {
+      right: 120px;
+      background-color: #007bff;
+    }
+  </style>
+</head>
+<body>
+
+  <button id="toggleBtn">ON</button>
+  <button id="modeBtn">Автономний</button>
+
+  <h1>Система моніторингу дому</h1>
+
+  <div class="chart-container"><canvas id="tempChart"></canvas></div>
+  <div class="chart-container"><canvas id="humidChart"></canvas></div>
+  <div class="chart-container"><canvas id="co2Chart"></canvas></div>
+  <div class="chart-container"><canvas id="motionChart"></canvas></div>
+  <div class="chart-container"><canvas id="lightChart"></canvas></div>
+
+  <script>
+    const POINTS_COUNT = 60;
+    const chartConfigs = [
+      { id: 'tempChart', label: 'Температура (°C)', borderColor: '#ff0000', backgroundColor: 'rgba(255, 0, 0, 0.3)', initial: 22, variation: 0.5, minY: -50, maxY: 50, rounding: 1 },
+      { id: 'humidChart', label: 'Вологість (%)', borderColor: '#0000ff', backgroundColor: 'rgba(0, 0, 255, 0.3)', initial: 40, variation: 0.5, minY: 30, maxY: 50, rounding: 1 },
+      { id: 'co2Chart', label: 'CO₂ (ppm)', borderColor: '#008000', backgroundColor: 'rgba(0, 128, 0, 0.3)', initial: 600, variation: 20, minY: 300, maxY: 2000, rounding: 1 },
+      { id: 'motionChart', label: 'Рух (рівень)', borderColor: '#800080', backgroundColor: 'rgba(128, 0, 128, 0.3)', initial: 0, variation: 3, minY: 0, maxY: 10, rounding: 1 },
+      { id: 'lightChart', label: 'Освітлення (лк)', borderColor: '#ffa500', backgroundColor: 'rgba(255, 165, 0, 0.3)', initial: 200, variation: 15, minY: 0, maxY: 1000, rounding: 1 },
+    ];
+
+    const charts = [];
+    const intervals = [];
+
+    function getRecommendation(label, value) {
+      switch (label) {
+        case 'Температура (°C)':
+          return value > 30 ? 'Температура висока – увімкніть кондиціонер або провітріть кімнату.' :
+                 value < 16 ? 'Температура низька – рекомендується обігрів.' :
+                 'Температура у нормі.';
+        case 'Вологість (%)':
+          return value > 60 ? 'Висока вологість – можливий ризик плісняви.' :
+                 value < 30 ? 'Низька вологість – можлива сухість у горлі.' :
+                 'Вологість у нормі.';
+        case 'CO₂ (ppm)':
+          return value > 1000 ? 'Високий рівень CO₂ – провітріть приміщення.' : 'Рівень CO₂ в нормі.';
+        case 'Рух (рівень)':
+          return value > 5 ? 'Активний рух – можливо хтось у кімнаті.' : 'Рух відсутній або низький.';
+        case 'Освітлення (лк)':
+          return value < 100 ? 'Освітлення слабке – можливо потрібно увімкнути світло.' : 'Освітлення в нормі.';
+        default:
+          return '';
+      }
+    }
+
+    function createChart(config) {
+      const { id, label, borderColor, backgroundColor, initial, variation, minY, maxY, rounding = 1 } = config;
+      const ctx = document.getElementById(id).getContext('2d');
+
+      const labels = Array.from({ length: POINTS_COUNT }, (_, i) => {
+        const date = new Date(Date.now() - (POINTS_COUNT - 1 - i) * 1000);
+        return date.toTimeString().slice(0, 8);
+      });
+
+      const data = Array(POINTS_COUNT).fill(initial);
+
+      const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: label,
+            data: data,
+            borderColor: borderColor,
+            backgroundColor: backgroundColor,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 2,
+            borderWidth: 2,
+          }]
+        },
+        options: {
+          animation: false,
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { ticks: { maxTicksLimit: 10 } },
+            y: {
+              min: minY,
+              max: maxY,
+              ticks: {
+                stepSize: Math.ceil((maxY - minY) / 10),
+                callback: value => Number(value).toFixed(0)
+              }
+            }
+          },
+          plugins: {
+            legend: { labels: { font: { size: 14 } } },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${label}: ${ctx.parsed.y.toFixed(rounding)}\n${getRecommendation(label, ctx.parsed.y)}`,
+                title: ctx => `Час: ${ctx[0].label}`
+              }
+            }
+          }
+        }
+      });
+
+      const intervalId = setInterval(() => {
+        let next = data[data.length - 1] + (Math.random() * 2 - 1) * variation;
+        next = Math.max(minY, Math.min(maxY, next));
+        next = parseFloat(next.toFixed(rounding));
+        data.shift();
+        data.push(next);
+        labels.shift();
+        labels.push(new Date().toTimeString().slice(0, 8));
+        chart.update('none');
+      }, 1000);
+
+      charts.push({ chart, data, labels, config });
+      intervals.push(intervalId);
+    }
+
+    chartConfigs.forEach(cfg => createChart(cfg));
+
+    const toggleBtn = document.getElementById('toggleBtn');
+    let updatesEnabled = true;
+
+    toggleBtn.addEventListener('click', () => {
+      updatesEnabled = !updatesEnabled;
+      toggleBtn.classList.toggle('off');
+      toggleBtn.textContent = updatesEnabled ? 'ON' : 'OFF';
+
+      if (!updatesEnabled) {
+        intervals.forEach(id => clearInterval(id));
+        intervals.length = 0;
+      } else {
+        charts.forEach(({ chart, data, labels, config }) => {
+          const intervalId = setInterval(() => {
+            let next = data[data.length - 1] + (Math.random() * 2 - 1) * config.variation;
+            next = Math.max(config.minY, Math.min(config.maxY, next));
+            next = parseFloat(next.toFixed(config.rounding));
+            data.shift();
+            data.push(next);
+            labels.shift();
+            labels.push(new Date().toTimeString().slice(0, 8));
+            chart.update('none');
+          }, 1000);
+          intervals.push(intervalId);
+        });
+      }
+    });
+
+    const modeBtn = document.getElementById('modeBtn');
+    let isComfort = false;
+
+    modeBtn.addEventListener('click', () => {
+      isComfort = !isComfort;
+      const mode = isComfort ? 'Комфорт' : 'Автономний';
+      modeBtn.textContent = mode;
+      alert(`Система перейшла у режим: ${mode}`);
+    });
+  </script>
+
+</body>
+</html>
